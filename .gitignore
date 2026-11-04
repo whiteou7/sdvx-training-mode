@@ -1,0 +1,8 @@
+build/
+sdvx_training.log
+sdvx_training.cmd
+sdvx_training.status
+sdvx_training.status.tmp
+__pycache__/
+.vs/
+.vscode/
