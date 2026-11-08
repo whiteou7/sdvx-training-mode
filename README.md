@@ -1,13 +1,13 @@
 # sdvx-training-mode
 
-Training Mode for SOUND VOLTEX Nabla
+Training Mode hook for SOUND VOLTEX Nabla
 
 ![Overlay panel](img/overlay.png)
 
 ## Features
 
 * Seek by measure, set start-end measure and repeat loop
-* Game speed modifier 0.50–1.50x
+* Game speed modifier 0.5–2.0x
 * Fixed judge option (OFF = timing windows will get scaled with the speed modifier)
 * Pause/resume chart
 * Fixed scroll speed
