@@ -254,6 +254,10 @@ void resolve_optional(const Module& m, const RttiIndex& rtti, GameApi& api) {
 
     if (void** iv = rtti.primary(cls::Input)) api.vft_input = iv;
     if (has_slots(rtti, cls::Judge, slot::JudgeGetTime)) api.vft_judge = rtti.primary(cls::Judge);
+    for (auto [name, out] : {std::pair{cls::Chip, &api.chip}, std::pair{cls::Hold, &api.hold}, std::pair{cls::Laser, &api.laser}})
+        if (const auto* v = rtti.find(name))
+            for (auto& t : *v)
+                if (t.offset == 0 && t.slots > slot::NoteDraw) *out = t;
     // DrawTimer GetTime: mov rax,[rcx+offs]; ...; mulss [1e-9]; addss xmm0,[rax].  JudgeTimer: addss xmm6,[rax+at].
     static const Pat kDrawOffs("48 8B 41 @offs:1 0F 57 C0 F3 48 0F 2A 41 ?? F3 0F 59 05 ?? ?? ?? ?? F3 0F 58 00");
     static const Pat kJudgeOffs("48 8B 47 @offs:1 F3 0F 58 70 @at:1");

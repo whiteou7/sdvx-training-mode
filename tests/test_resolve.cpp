@@ -147,6 +147,7 @@ int wmain(int argc, wchar_t** argv) {
     EXPECT_EQ(api.off_active_begin, 0x478);
     EXPECT_EQ(api.off_active_end, 0x480);
     EXPECT_EQ(api.vft_tumami != nullptr, 1);
+    EXPECT_EQ(api.chip.vft && api.hold.vft && api.laser.vft, 1);
     EXPECT_EQ(api.vft_fumen != nullptr, 1);
     EXPECT_EQ(api.vft_audio != nullptr, 1);
     EXPECT_EQ(api.off_timer_running, 0x10);

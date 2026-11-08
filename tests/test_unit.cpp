@@ -125,6 +125,7 @@ static void test_trainer() {
 
     s = t.update(12.3, key(&Keys::jump_start), &msg);
     CHECK(s && std::fabs(*s - 8.0) < 1e-12);
+    CHECK(t.preroll_end() && std::fabs(*t.preroll_end() - 10.0) < 1e-12);
 
     s = t.update(11.0, key(&Keys::prev), &msg);
     CHECK(s && std::fabs(*s - 10.0) < 1e-12);

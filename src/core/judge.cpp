@@ -24,7 +24,7 @@ static bool tick_vector(void* note, uint8_t*& b, uint8_t*& e) {
     return b && e > b && (e - b) % 0x30 == 0 && e - b <= 0x30 * 4096 && readable(b, size_t(e - b));
 }
 
-static bool tick_span(void* note, float& first, float& last) {
+static bool note_span(void* note, float& first, float& last) {
     uint8_t *b = nullptr, *e = nullptr;
     if (!tick_vector(note, b, e)) return false;
     first = at<float>(b, 0);
@@ -38,7 +38,37 @@ static bool note_range(uint8_t*& beg, uint8_t*& end) {
     return beg && end > beg && (end - beg) % 16 == 0 && end - beg <= 16 * 50000 && readable(beg, size_t(end - beg));
 }
 
+// notes in the preroll section are hidden by making draw function noop
+struct Disguise {
+    void** real = nullptr;
+    std::vector<void*> slots;
+    void** fake() { return slots.data() + 1; }
+};
+static Disguise g_disguise[3]; // one copy each for chips, holds and lasers
+
+static void skip_draw(void*, void*) {}
+
+static void** fake_vft(const VfTable& t) {
+    for (Disguise& d : g_disguise) {
+        if (d.real == t.vft) return d.fake();
+        if (d.real) continue;
+        d.slots.assign(t.vft - 1, t.vft + t.slots);
+        d.slots[1 + slot::NoteDraw] = reinterpret_cast<void*>(&skip_draw);
+        d.real = t.vft;
+        return d.fake();
+    }
+    return nullptr;
+}
+
+static void** real_vft(void** v) {
+    for (Disguise& d : g_disguise)
+        if (d.real && v == d.fake()) return d.real;
+    return v;
+}
+
 static bool is_game_note(void* note) {
+    void** v = nullptr;
+    if (note && read(note, v) && real_vft(v) != v) return true;
     const std::string nc = note ? g_rtti.class_of(note) : std::string();
     return nc.size() >= 11 && !nc.compare(nc.size() - 11, 11, "Note@Game@@");
 }
@@ -64,37 +94,102 @@ static bool find_referee(void* fumen) {
     return false;
 }
 
-// Without this, every skipped note would be judged ERROR. Running the referee's timeout check with its clock at the
-// seek target marks them as misses instead. A later backward seek clears them (RewindJudgementsAfter).
-Marked mark_skipped(void* world, double from, double to) {
-    Marked r;
-    if (!find_referee(field(world, g_api.off_fumen))) return r;
-    auto* ref = static_cast<uint8_t*>(g_s.referee);
-    void** rvft = nullptr;
-    float saved = 0;
-    if (!read(ref, rvft) || rvft != g_api.vft_referee || !read(ref + g_api.off_referee_now, saved)) return r;
-    auto timeout = reinterpret_cast<FnRefereeTimeout>(rvft[slot::RefereeTimeout]);
-    const float judge_new = saved + float(to - from);
-    std::memcpy(ref + g_api.off_referee_now, &judge_new, sizeof(float));
+struct NoteSpan {
+    uint8_t* entry;  // the shared_ptr<INote> slot in the note list
+    void* note;
+    float first, last;
+};
+
+static std::vector<NoteSpan> game_notes() {
+    std::vector<NoteSpan> out;
     uint8_t *beg = nullptr, *end = nullptr;
-    if (note_range(beg, end)) {
-        for (uint8_t* e = beg; e < end; e += 16) {
-            void* note = at<void*>(e, 0);
-            float first = 0, last = 0;
-            if (!is_game_note(note) || !tick_span(note, first, last)) continue;
-            if (last < from - 1.0 || first > to) continue;
-            int n = 0;
-            alignas(16) uint8_t res[0x40];
-            for (; n < 4096; n++) {
-                std::memset(res, 0, sizeof(res));
-                timeout(ref, res, e, judge_new);
-                if (at<int>(res, 0) == 0) break;
-            }
-            if (n) r.notes++, r.ticks += n;
-        }
+    if (!note_range(beg, end)) return out;
+    for (uint8_t* e = beg; e < end; e += 16) {
+        NoteSpan s{e, at<void*>(e, 0), 0, 0};
+        if (is_game_note(s.note) && note_span(s.note, s.first, s.last)) out.push_back(s);
     }
-    std::memcpy(ref + g_api.off_referee_now, &saved, sizeof(float));
-    return r;
+    return out;
+}
+
+// The referee's clock is moved for each skip and put back when this goes out of scope.
+class Referee {
+public:
+    explicit Referee(void* world) {
+        if (!find_referee(field(world, g_api.off_fumen))) return;
+        ref_ = static_cast<uint8_t*>(g_s.referee);
+        void** vft = nullptr;
+        if (!read(ref_, vft) || vft != g_api.vft_referee || !read(ref_ + g_api.off_referee_now, now_)) return;
+        timeout_ = reinterpret_cast<FnRefereeTimeout>(vft[slot::RefereeTimeout]);
+    }
+    ~Referee() {
+        if (timeout_) std::memcpy(ref_ + g_api.off_referee_now, &now_, sizeof(float));
+    }
+    Referee(const Referee&) = delete;
+    Referee& operator=(const Referee&) = delete;
+
+    explicit operator bool() const { return timeout_ != nullptr; }
+    float now() const { return now_; }
+
+    // timeout note and throw result away, so the fumen player raises no ERROR for these ticks.
+    bool skip(uint8_t* entry, float judge_time) {
+        if (!std::isfinite(judge_time)) return false;
+        std::memcpy(ref_ + g_api.off_referee_now, &judge_time, sizeof(float));
+        int n = 0;
+        alignas(16) uint8_t res[0x40];
+        for (; n < 4096; n++) {
+            std::memset(res, 0, sizeof(res));
+            timeout_(ref_, res, entry, judge_time);
+            if (at<int>(res, 0) == 0) break;
+        }
+        return n > 0;
+    }
+
+private:
+    uint8_t* ref_ = nullptr;
+    FnRefereeTimeout timeout_ = nullptr;
+    float now_ = 0;
+};
+
+static void hide_note(void* note) {
+    void** v = at<void**>(note, 0);
+    for (const VfTable* t : {&g_api.chip, &g_api.hold, &g_api.laser})
+        if (t->vft && v == t->vft)
+            if (void** f = fake_vft(*t)) std::memcpy(note, &f, sizeof(f));
+}
+
+int skip_notes(void* world, double from, double to) {
+    Referee ref(world);
+    if (!ref) return 0;
+    const float next_frame = ref.now() + float(to - from);
+    int n = 0;
+    for (const NoteSpan& s : game_notes())
+        if (s.last >= from - 1.0 && s.first <= to && ref.skip(s.entry, next_frame)) n++;
+    return n;
+}
+
+int skip_and_hide_notes(void* world, double from, double to) {
+    constexpr double kEdge = 0.005;  // a note on the loop start line may sit a few ms early in float seconds
+    Referee ref(world);
+    if (!ref) return 0;
+    int n = 0;
+    for (const NoteSpan& s : game_notes()) {
+        if (s.first < from - kEdge || s.first >= to - kEdge) continue;
+        const bool ends_in_preroll = s.last < to - kEdge;
+        if (ends_in_preroll) hide_note(s.note);
+        if (ref.skip(s.entry, ends_in_preroll ? s.last + 1.0f : float(to))) n++;
+    }
+    return n;
+}
+
+void show_notes() {
+    uint8_t *beg = nullptr, *end = nullptr;
+    if (!g_s.objmgr || !note_range(beg, end)) return;
+    for (uint8_t* e = beg; e < end; e += 16) {
+        void* note = at<void*>(e, 0);
+        void** v = nullptr;
+        if (!read(note, v)) continue;
+        if (void** r = real_vft(v); r != v) std::memcpy(note, &r, sizeof(r));
+    }
 }
 
 constexpr size_t kMaxWindowEntries = 600000;

@@ -29,6 +29,9 @@ inline constexpr const char* Engine = ".?AVPseudo3dEngine@Graphics@@";
 inline constexpr const char* GWorld = ".?AVPseudo3dGameWorld@Graphics@@";
 inline constexpr const char* Morph = ".?AVLaneMorphingUpdater@Game@@";
 inline constexpr const char* Event = ".?AVEventObject@Game@@";
+inline constexpr const char* Chip = ".?AVButtonNote@Game@@";
+inline constexpr const char* Hold = ".?AVLongButtonNote@Game@@";
+inline constexpr const char* Laser = ".?AVTumamiNote@Game@@";
 }  // namespace cls
 
 namespace slot {
@@ -62,6 +65,7 @@ inline constexpr int CamPitch = 7;
 inline constexpr int MorphUpdate = 1;
 inline constexpr int EventFire = 1;
 inline constexpr int EventTime = 2;  // in draw timer seconds
+inline constexpr int NoteDraw = 5;  // the same slot in ButtonNote, LongButtonNote and TumamiNote
 }  // namespace slot
 
 using FnVoid = void (*)(void*);
@@ -140,6 +144,7 @@ struct GameApi {
 
     void** vft_input = nullptr;
     void** vft_judge = nullptr;
+    VfTable chip{}, hold{}, laser{};
     uint32_t off_draw_offs = 0, off_judge_offs = 0, judge_offs_at = 0;  // both timers read the timing offsets through a pointer to the same float block
     void** vft_range = nullptr;
     uint32_t off_draw_range = 0;

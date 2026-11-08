@@ -198,6 +198,7 @@ static bool do_seek(void* world, double target, double chart_now) {
         }
     }
     const auto voices = song_voices(world, g_s.bgm);  // collected before anything moves
+    show_notes();
     void* fumen = fumen_of(world);
     const float fx_before = fumen ? effects_time(fumen) : -1.0f;
     const float delta = float(target + g_s.offset - t_now);
@@ -219,9 +220,8 @@ static bool do_seek(void* world, double target, double chart_now) {
     logf("seek chart %.3f -> %.3f s (timer %.3f -> %.3f, offset %.4f, bgm %p, %zu song voice%s moved)", chart_now,
          target, t_now, t_after, g_s.offset, g_s.bgm, voices.size(), voices.size() == 1 ? "" : "s");
     if (t_after > t_now + 0.05f) {
-        const Marked m = mark_skipped(world, t_now, t_after);
-        logf("forward seek: %d skipped note%s recorded as missed without judgement (%d ticks)", m.notes,
-             m.notes == 1 ? "" : "s", m.ticks);
+        const int n = skip_notes(world, t_now, t_after);
+        logf("forward seek: %d skipped note%s recorded as missed without judgement", n, n == 1 ? "" : "s");
     }
     g_s.settle = 15;
     g_s.pause_pos = target;
@@ -375,7 +375,12 @@ static void run_trainer(void* world, double chart_now, const Keys& keys) {
     const auto target = g_trainer.update(chart_now, keys, &msg);
     if (target && g_s.refuse_cooldown > 0) return;  // after a refused seek, neither retry nor log every frame
     if (!msg.empty()) logf("%s", msg.c_str());
-    if (target && do_seek(world, *target, chart_now) && g_trainer.to_start()) refill_gauge(world);
+    if (!target || !do_seek(world, *target, chart_now) || !g_trainer.to_start()) return;
+    refill_gauge(world);
+    if (const auto start = g_trainer.preroll_end()) {
+        const int n = skip_and_hide_notes(world, *target + g_s.offset, *start + g_s.offset);
+        logf("preroll: %d note%s cleared before the loop start", n, n == 1 ? "" : "s");
+    }
 }
 
 static void publish_status(double chart_now, float t_now) {
