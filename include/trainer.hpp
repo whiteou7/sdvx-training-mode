@@ -50,6 +50,7 @@ public:
     bool fixed_scroll() const { return fixed_scroll_; }
     bool no_camera() const { return no_camera_; }
     bool to_start() const { return to_start_; }
+    std::optional<double> preroll_end() const;
 
     void set_enabled(bool e) { enabled_ = e; }
     void set_speed(double s);

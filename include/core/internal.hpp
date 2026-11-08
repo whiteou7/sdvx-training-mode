@@ -127,10 +127,6 @@ inline constexpr float kEndMargin = 0.2f;  // hold this long before the chart en
 inline constexpr double kMixRate = 44100.0;  // CSoundVoltexAudioGraph mixes at 44.1 kHz
 using FnWorldFinished = uint8_t (*)(void*);
 
-struct Marked {
-    int notes = 0, ticks = 0;
-};
-
 extern Module g_mod;
 extern RttiIndex g_rtti;
 extern GameApi g_api;
@@ -178,7 +174,9 @@ void apply_speed(void* timer, double speed, float t_now);
 void draw_follow(void* world, bool running);
 void draw_remember();
 
-Marked mark_skipped(void* world, double from, double to);
+int skip_notes(void* world, double from, double to);
+int skip_and_hide_notes(void* world, double from, double to);
+void show_notes();
 void apply_windows(void* world, double factor);
 void restore_lane();
 void apply_lane();

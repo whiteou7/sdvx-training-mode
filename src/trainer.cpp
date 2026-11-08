@@ -29,6 +29,11 @@ double Trainer::loop_start_time() const {
     return tl_->start_of(std::max(0, start_ - cfg_.preroll_measures));
 }
 
+std::optional<double> Trainer::preroll_end() const {
+    if (!tl_ || start_ <= 0 || cfg_.preroll_measures <= 0) return std::nullopt;
+    return tl_->start_of(start_);
+}
+
 std::string Trainer::status(double now) const {
     char buf[200];
     const int cur = tl_ ? tl_->measure_at(now) + 1 : 0;
