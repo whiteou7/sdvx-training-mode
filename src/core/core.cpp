@@ -322,15 +322,18 @@ static void log_world_ready(void* world, float t_now) {
 }
 
 static void search_bgm(void* world, float t_now) {
-    if (g_s.bgm || --g_s.bgm_rescan > 0) return;
-    const bool diag = t_now > 0.5f && ++g_s.bgm_searches % 20 == 0 && g_s.bgm_searches <= 120;
+    const bool on_music_bus = g_s.bgm && voice_bus(g_s.bgm) == 1;
+    if (on_music_bus || --g_s.bgm_rescan > 0) return;
+    const bool diag = !g_s.bgm && t_now > 0.5f && ++g_s.bgm_searches % 20 == 0 && g_s.bgm_searches <= 120;
     if (diag) logf("BGM not found yet at timer %.3f; %zu voices playing:", t_now, active_voices().size());
-    g_s.bgm = find_bgm(world, diag, t_now);
+    void* found = find_bgm(world, diag, t_now);
     g_s.bgm_rescan = 15;  // about 0.1 s. The music is usually found about 0.5 s after it starts
-    if (!g_s.bgm) return;
+    if (!found || found == g_s.bgm) return;
+    g_s.bgm = found;
     double pos = 0;
     voice_pos(g_s.bgm, pos);
     logf("BGM voice %p at %.1f ms (timer %.3f), bus %d", g_s.bgm, pos, t_now, voice_bus(g_s.bgm));
+    g_s.speed_refused = false;  // A refusal made against an earlier pick is checked again for this voice.
     g_s.offset_ok = false;
     g_s.drift_frames = 0;
 }
