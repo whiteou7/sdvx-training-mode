@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 namespace tr::core::detail {
 
@@ -131,7 +132,7 @@ bool excluded(void* v) { return std::find(g_s.excluded.begin(), g_s.excluded.end
 void* find_bgm(void* world, bool verbose, float t_now) {
     auto cands = voice_candidates(world);
     void* best = nullptr;
-    double best_ms = -1;
+    std::pair<bool, double> best_rank{false, -1.0};  // (is on bus 1, position in ms)
     for (void* v : cands) {
         double ms;
         const bool ok = voice_pos(v, ms);
@@ -146,12 +147,15 @@ void* find_bgm(void* world, bool verbose, float t_now) {
             it->good = (it->rate > 0.9 && it->rate < 1.1) ? it->good + 1 : 0;
             it->t = t_now, it->ms = ms;
         }
+        const int bus = voice_bus(v);
         if (verbose)
             logf("  voice %p pos=%s%.1f ms rate=%.3f good=%d bus=%d%s", v, ok ? "" : "n/a ", ok ? ms : 0.0, it->rate,
-                 it->good, voice_bus(v), excl ? " (was playing before the chart: ignored)" : "");
-        if (ok && !excl && it->good >= 2 && ms > kBgmMinMs && ms > best_ms) best = v, best_ms = ms;
+                 it->good, bus, excl ? " (was playing before the chart: ignored)" : "");
+        const std::pair rank(bus == 1, ms);
+        // pick the voice in bus 1 and has larger playback position
+        if (ok && !excl && it->good >= 2 && ms > kBgmMinMs && rank > best_rank) best = v, best_rank = rank;
     }
-    if (verbose) logf("  %zu voice candidates, BGM guess %p (%.1f ms)", cands.size(), best, best_ms);
+    if (verbose) logf("  %zu voice candidates, BGM guess %p (%.1f ms)", cands.size(), best, best_rank.second);
     return best;
 }
 

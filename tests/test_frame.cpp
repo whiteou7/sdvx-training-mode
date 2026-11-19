@@ -86,6 +86,10 @@ struct Rig {
     Obj<0x100> chip;
     Obj<0x100> menu;
     Obj<0x100> stuck;
+    Obj<0x100> jingle;
+    Obj<0x40> jingle_conn;
+    void* jingle_conns[1] = {};
+    bool jingle_on = false;
     Obj<0x500> mixer;
     void* mixer_list[12] = {};
     int frame_no = 0;
@@ -138,12 +142,21 @@ struct Rig {
     void use_audio_thread() {
         via_audio_thread = true;
         audio.f<void*>(0x130) = &elems[0];
-        for (Obj<0x100>* v : {&fx, &chip, &menu, &stuck}) {
+        for (Obj<0x100>* v : {&fx, &chip, &menu, &stuck, &jingle}) {
             *v = voice;
             v->f<int>(0x90) = 0;
         }
         menu.f<int>(0x90) = int(2.0 * kRate);
         stuck.f<int>(0x90) = int(5.0 * kRate);
+    }
+
+    // A player's 1013 log had a bus 0 sound that starts with the chart and runs seconds ahead of the song.
+    // It needs use_audio_thread first, which copies the song voice into it.
+    void use_jingle() {
+        jingle_on = true;
+        jingle_conns[0] = jingle_conn.p();
+        jingle.f<void*>(0x38) = &jingle_conns[0];
+        jingle.f<void*>(0x40) = &jingle_conns[1];
     }
 
     void use_bus() {
@@ -392,6 +405,10 @@ struct Rig {
                 mixer_list[2 * n++] = menu.b + 8;
             }
             if (t >= 1.0) mixer_list[2 * n++] = stuck.b + 8;
+            if (jingle_on && t >= 0.05) {
+                jingle.f<int>(0x90) += int(std::lround(kDt * kRate));
+                mixer_list[2 * n++] = jingle.b + 8;
+            }
             if (bgm_playing && t >= kLeadIn) {
                 mixer_list[2 * n++] = voice.b + 8;
                 mixer_list[2 * n++] = fx.b + 8;
@@ -673,6 +690,32 @@ int wmain(int argc, wchar_t** argv) {
         CHECK(q.chip.f<int>(0x90) / kRate < 0.4);
         CHECK_NEAR(timer_chart(q), 1 * M, 1e-3);
     }
+
+    {
+        core::set_clock(test_clock);
+        core::set_stretch_original(node_read, node_set_rate);
+        auto rig_jingle = std::make_unique<Rig>();
+        Rig& j = *rig_jingle;
+        j.build(core::api(), vft_wave);
+        j.use_audio_thread();
+        j.use_bus();
+        j.use_jingle();
+        j.step();
+        if (!core::trainer().enabled()) j.step(key(&Keys::toggle));
+        while (j.t < 1.5) j.step();
+        CHECK(core::state().bgm == j.jingle.p());
+        j.step(key(&Keys::pause));
+        j.step();
+        CHECK(!core::guards().paused);
+        while (j.t < kLeadIn + 3.0) j.step();
+        CHECK(core::state().bgm == j.voice.p() || core::state().bgm == j.fx.p());
+        CHECK_NEAR(core::state().offset, kLeadIn, 2 * kDt);
+        j.step(key(&Keys::pause));
+        j.step();
+        CHECK(core::guards().paused);
+        j.step(key(&Keys::pause));
+    }
+    core::set_clock(nullptr);
 
     {
         core::set_clock(test_clock);
